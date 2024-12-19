@@ -6,12 +6,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 @RequiredArgsConstructor
 public class PointService {
     private final UserPointTable userPointTable;
     private final PointHistoryTable pointHistoryTable;
+    private final ReentrantLock lock = new ReentrantLock(); // ReentrantLock
 
     public UserPoint getUserPoint(
            final long id
@@ -39,31 +41,40 @@ public class PointService {
             final long id,
             final long amount
     ) {
-        if(amount < 100){ // min > 100 & max < 500,000
-            throw new RuntimeException("100원부터 충전이 가능합니다.");
-        } else if(amount > 500000){
-            throw new RuntimeException("회당 충전금액이 50만원을 넘길 수 없습니다.");
-        }
+        lock.lock(); // 잠금 설정
+        try {
+            if(amount < 100){ // min > 100 & max < 500,000
+                throw new RuntimeException("100원부터 충전이 가능합니다.");
+            } else if(amount > 500000){
+                throw new RuntimeException("회당 충전금액이 50만원을 넘길 수 없습니다.");
+            }
 
         UserPoint updatedPoint = userPointTable.insertOrUpdate(id, amount); // 포인트 충전
         pointHistoryTable.insert(updatedPoint.id(), amount, TransactionType.CHARGE, System.currentTimeMillis()); // 충전된 금액 히스토리 기록
 
         return updatedPoint;
+        } finally {
+            lock.unlock(); // 잠금 해제
+        }
     }
 
     public UserPoint setUserPointUse(
             final long id,
             final long amount
     ) {
-        UserPoint currentPoint = userPointTable.selectById(id); // 현재 포인트
+        lock.lock(); // 잠금 설정
+        try {
+            UserPoint currentPoint = userPointTable.selectById(id); // 현재 포인트
 
-        if (currentPoint.point() < amount) {
-            throw new RuntimeException("잔고가 부족합니다."); // 잔고 부족 예외 처리
+            if (currentPoint.point() < amount) {
+                throw new RuntimeException("잔고가 부족합니다."); // 잔고 부족 예외 처리
+            }
+
+            UserPoint updatedPoint = userPointTable.insertOrUpdate(id, currentPoint.point() - amount); // 포인트 차감
+            pointHistoryTable.insert(updatedPoint.id(), -amount, TransactionType.USE, System.currentTimeMillis()); // 사용한 금액 히스토리 기록
+            return updatedPoint;
+        } finally {
+            lock.unlock(); // 잠금 해제
         }
-
-        UserPoint updatedPoint = userPointTable.insertOrUpdate(id, currentPoint.point() - amount); // 포인트 차감
-        pointHistoryTable.insert(updatedPoint.id(), -amount, TransactionType.USE, System.currentTimeMillis()); // 사용한 금액 히스토리 기록
-
-        return updatedPoint;
     }
 }
