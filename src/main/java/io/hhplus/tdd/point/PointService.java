@@ -49,10 +49,13 @@ public class PointService {
                 throw new RuntimeException("회당 충전금액이 50만원을 넘길 수 없습니다.");
             }
 
-        UserPoint updatedPoint = userPointTable.insertOrUpdate(id, amount); // 포인트 충전
-        pointHistoryTable.insert(updatedPoint.id(), amount, TransactionType.CHARGE, System.currentTimeMillis()); // 충전된 금액 히스토리 기록
+            // 기존 포인트 조회 및 누적
+            UserPoint existingPoint = userPointTable.selectById(id);
+            long newTotal = existingPoint.point() + amount;
 
-        return updatedPoint;
+            UserPoint updatedPoint = userPointTable.insertOrUpdate(id, newTotal);
+            pointHistoryTable.insert(updatedPoint.id(), amount, TransactionType.CHARGE, System.currentTimeMillis());
+            return updatedPoint;
         } finally {
             lock.unlock(); // 잠금 해제
         }
